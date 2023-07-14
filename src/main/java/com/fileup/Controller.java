@@ -2,15 +2,22 @@ package com.fileup;
 
 import static java.util.stream.Collectors.toList;
 import static javafx.collections.FXCollections.observableArrayList;
+import static javafx.scene.input.KeyCode.ENTER;
+import static javafx.scene.input.MouseButton.SECONDARY;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -20,9 +27,13 @@ import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.scene.control.Button;
 import javafx.scene.control.ChoiceBox;
-import javafx.scene.control.ListView;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
-import javafx.scene.input.KeyCode;
+import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
@@ -31,11 +42,12 @@ public class Controller {
 
     private ObservableList<String> filesListView;
     private static File currPath;
+    private static List<FileSystemItem> cachedItems;
 
     @FXML
     private ChoiceBox<String> drivesChoice;
     @FXML
-    private ListView<String> directoriesAndFiles;
+    private TableView<TableRowData> directoriesAndFiles;
     @FXML
     private TextField fileExtensionText;
     @FXML
@@ -47,33 +59,57 @@ public class Controller {
     private TextField searchField;
 
     public void initialize() {
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream("cache.dat"))) {
+            cachedItems = (List<FileSystemItem>) ois.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+
         var drives = getDrives();
         filesListView = observableArrayList();
 
-        for (File file : drives) {
-            drivesChoice.getItems().add(file.toString());
-            drivesChoice.getSelectionModel().selectFirst();
-            addItemToList(String.valueOf(file));
-            directoriesAndFiles.setCellFactory(param -> new ImageTextListCell(file));
-            directoriesAndFiles.getItems().add(file.toString());
-        }
+        drivesChoice.getItems().addAll(drives.stream().map(File::toString).collect(Collectors.toList()));
         drivesChoice.getItems().add("ALL");
+        drivesChoice.getSelectionModel().selectFirst();
 
         searchField.setOnKeyPressed(ke -> {
-            if (ke.getCode().equals(KeyCode.ENTER)) {
+            if (ke.getCode().equals(ENTER)) {
                 System.out.println(searchField.getText());
             }
         });
+
+        TableColumn<TableRowData, ImageView> imageColumn = new TableColumn<>("Image");
+        TableColumn<TableRowData, String> nameColumn = new TableColumn<>("Name");
+        TableColumn<TableRowData, String> pathColumn = new TableColumn<>("Path");
+
+        imageColumn.setCellValueFactory(new PropertyValueFactory<>("image"));
+        nameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
+        pathColumn.setCellValueFactory(new PropertyValueFactory<>("path"));
+
+        imageColumn.prefWidthProperty().bind(directoriesAndFiles.widthProperty().multiply(0.15));
+        nameColumn.prefWidthProperty().bind(directoriesAndFiles.widthProperty().multiply(0.42));
+        pathColumn.prefWidthProperty().bind(directoriesAndFiles.widthProperty().multiply(0.43));
+
+        for (File file : drives) {
+            addItemToList(String.valueOf(file));
+            ImageView image = Helper.findImage(file);
+            directoriesAndFiles.getItems().add(new TableRowData(image, file.getName(), file.getAbsolutePath()));
+        }
+
+        directoriesAndFiles.getColumns().addAll(imageColumn, nameColumn, pathColumn);
     }
 
     @FXML
     private void filesListViewClicked(MouseEvent event) {
-        List<File> files = null;
-        if (event.getClickCount() == 2) {
-            String selectedItem = directoriesAndFiles.getSelectionModel().getSelectedItem();
+        List<File> files;
+        TableRowData selectedItem = directoriesAndFiles.getSelectionModel().getSelectedItem();
 
+        if (event.getButton() == SECONDARY) {
+            addPopupMenu(selectedItem, event);
+        }
+        if (event.getClickCount() == 2) {
             try {
-                files = listFiles(selectedItem);
+                files = listFiles(selectedItem.getPath());
                 if (files != null) {
                     directoriesAndFiles.getItems().clear();
                     currPath = files.get(0).getParentFile();
@@ -81,15 +117,12 @@ public class Controller {
                         if (file.isFile()) {
                             if (!fileExtensionText.getText().isEmpty()) {
                                 if (file.getName().toLowerCase().contains(fileExtensionText.getText().toString().toLowerCase())) {
-                                    directoriesAndFiles.setCellFactory(param -> new ImageTextListCell(file));
                                 }
                             } else {
-                                directoriesAndFiles.setCellFactory(param -> new ImageTextListCell(file));
                             }
                         } else {
-                            directoriesAndFiles.setCellFactory(param -> new ImageTextListCell(file));
                         }
-                        directoriesAndFiles.getItems().add(file.toString());
+                        directoriesAndFiles.getItems().add(new TableRowData(null, file.getName(), file.getAbsolutePath()));
                     }
                 }
             } catch (Exception e) {
@@ -98,12 +131,37 @@ public class Controller {
         }
     }
 
+    private void addPopupMenu(TableRowData path, MouseEvent event) {
+        ContextMenu contextMenu = new ContextMenu();
+        MenuItem menuItem1 = new MenuItem("Open in File Explorer");
+        menuItem1.setOnAction(popupMenuEvent -> {
+            try {
+                Runtime.getRuntime().exec("explorer " + new File(path.getPath()).getParent());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        contextMenu.getItems().addAll(menuItem1);
+        directoriesAndFiles.setOnContextMenuRequested(eavent -> {
+            contextMenu.show(directoriesAndFiles, event.getScreenX(), event.getScreenY());
+        });
+    }
+
     @FXML
     private void search() {
         var fileName = searchField.getText().toString();
         var drive = drivesChoice.getSelectionModel().getSelectedItem();
         var fileExtension = fileExtensionText.getText().toString();
         directoriesAndFiles.getItems().clear();
+
+        if (cachedItems != null) {
+            for (FileSystemItem item : cachedItems) {
+                if (item.getPath().toLowerCase().contains(fileName)) {
+                    System.out.println("Found: " + item.getPath());
+                    populateFileTable(new File(item.getPath()));
+                }
+            }
+        }
 
         if (drive.equals("ALL")) {
             searchAll(fileName, fileExtension);
@@ -122,6 +180,8 @@ public class Controller {
     }
 
     public void searchFilesAndUpdateUI(File directory, String targetFileName, String targetFileExtension) {
+        List<FileSystemItem> cachedItems = new ArrayList<>();
+
         AtomicLong startTime = new AtomicLong(System.currentTimeMillis());
         AtomicLong filesSearched = new AtomicLong(0);
 
@@ -153,16 +213,28 @@ public class Controller {
 
                     if (files != null) {
                         for (File file : files) {
+                            FileSystemItem item = new FileSystemItem(file.getAbsolutePath(), file.isDirectory());
+                            cachedItems.add(item);
                             filesSearched.incrementAndGet();
                             if (file.isDirectory()) {
                                 stack.push(file);
                             } else {
-                                if (file.getName().toLowerCase().contains(targetFileName) && file.getName().toLowerCase().endsWith(targetFileExtension.toLowerCase())) {
-                                    Platform.runLater(() -> {
-                                        System.out.println("Found file: " + file.getAbsolutePath());
-                                        populateFileTable(file);
-                                        foundFiles.add(file);
-                                    });
+                                if (targetFileExtension.isBlank()) {
+                                    if (file.getName().toLowerCase().contains(targetFileName)) {
+                                        Platform.runLater(() -> {
+                                            System.out.println("Found file: " + file.getAbsolutePath());
+                                            populateFileTable(file);
+                                            foundFiles.add(file);
+                                        });
+                                    }
+                                } else {
+                                    if (file.getName().toLowerCase().contains(targetFileName) && file.getName().toLowerCase().endsWith(targetFileExtension.toLowerCase())) {
+                                        Platform.runLater(() -> {
+                                            System.out.println("Found file: " + file.getAbsolutePath());
+                                            populateFileTable(file);
+                                            foundFiles.add(file);
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -180,6 +252,12 @@ public class Controller {
                     updateTraversedPerSecondLabel(traversedPerSecond);
                     updateFilesSearched((int) filesSearched.get());
                 });
+
+                try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("cache.dat"))) {
+                    oos.writeObject(cachedItems);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
 
                 return foundFiles;
             }
@@ -223,8 +301,9 @@ public class Controller {
 
     private void populateFileTable(File file) {
         Platform.runLater(() -> {
-            directoriesAndFiles.setCellFactory(param -> new ImageTextListCell(file));
-            directoriesAndFiles.getItems().add(file.getAbsolutePath());
+            ImageView image = Helper.findImage(file);
+            TableRowData rowData = new TableRowData(image, file.getName(), file.getAbsolutePath());
+            directoriesAndFiles.getItems().add(rowData);
         });
     }
 
@@ -233,7 +312,7 @@ public class Controller {
         directoriesAndFiles.getItems().clear();
         var parent = currPath.getParentFile();
         for (File file : parent.listFiles()) {
-            directoriesAndFiles.getItems().add(file.toString());
+            directoriesAndFiles.getItems().add(new TableRowData(null, file.getName(), file.getAbsolutePath()));
         }
     }
 
@@ -260,6 +339,7 @@ public class Controller {
                     "\"DummyTitle\"",
                     "\"" + directoryPath.getAbsolutePath() + "\""
             };
+
             Process p = Runtime.getRuntime().exec(commands);
             p.waitFor();
             return null;
