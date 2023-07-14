@@ -6,7 +6,6 @@ import java.io.File;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
-import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.HBox;
@@ -23,21 +22,18 @@ class ImageTextListCell extends ListCell<String> {
         ImageView imageView = new ImageView();
         imageView.setFitWidth(20);
         imageView.setFitHeight(20);
-        if (file.isDirectory()) {
-            imageView.setImage(new Image("C:\\Users\\hugoh\\IdeaProjects\\fileup\\src\\main\\java\\com\\fileup\\images\\directory.png"));
-        } else {
-            Icon icon = FileSystemView.getFileSystemView().getSystemIcon(file);
-            int width = icon.getIconWidth();
-            int height = icon.getIconHeight();
 
-            BufferedImage bufferedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-            Graphics2D graphics = bufferedImage.createGraphics();
-            icon.paintIcon(null, graphics, 0, 0);
-            graphics.dispose();
-            WritableImage writableImage = new WritableImage(width, height);
-            SwingFXUtils.toFXImage(bufferedImage, writableImage);
-            imageView.setImage(writableImage);
-        }
+        Icon icon = FileSystemView.getFileSystemView().getSystemIcon(file);
+        int width = icon.getIconWidth();
+        int height = icon.getIconHeight();
+
+        BufferedImage bufferedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = bufferedImage.createGraphics();
+        icon.paintIcon(null, graphics, 0, 0);
+        graphics.dispose();
+        WritableImage writableImage = new WritableImage(width, height);
+        SwingFXUtils.toFXImage(bufferedImage, writableImage);
+        imageView.setImage(writableImage);
 
         textLabel = new Label();
 

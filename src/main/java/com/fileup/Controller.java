@@ -27,7 +27,7 @@ import javafx.scene.input.MouseEvent;
 import javafx.scene.text.Text;
 import javafx.util.Duration;
 
-public class HelloController {
+public class Controller {
 
     private ObservableList<String> filesListView;
     private static File currPath;
