@@ -5,7 +5,7 @@ build/
 !**/src/test/**/build/
 .gradle
 cache.dat
-
+javafx-sdk-20.0.1
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml

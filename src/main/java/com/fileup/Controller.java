@@ -1,6 +1,7 @@
 package com.fileup;
 
 import static java.util.stream.Collectors.toList;
+import static javafx.animation.Animation.INDEFINITE;
 import static javafx.collections.FXCollections.observableArrayList;
 import static javafx.scene.input.KeyCode.ENTER;
 import static javafx.scene.input.MouseButton.SECONDARY;
@@ -15,10 +16,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
-import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
@@ -60,15 +60,18 @@ public class Controller {
 
     public void initialize() {
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream("cache.dat"))) {
+            long startTime = System.currentTimeMillis();
             cachedItems = (List<FileSystemItem>) ois.readObject();
+            long endTime = System.currentTimeMillis();
+            System.out.println("Took " + (endTime - startTime) + " ms to get cache");
         } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
+            System.out.println("Cache not done previously, searching and creating a new .dat");
         }
 
         var drives = getDrives();
         filesListView = observableArrayList();
 
-        drivesChoice.getItems().addAll(drives.stream().map(File::toString).collect(Collectors.toList()));
+        drivesChoice.getItems().addAll(drives.stream().map(File::toString).toList());
         drivesChoice.getItems().add("ALL");
         drivesChoice.getSelectionModel().selectFirst();
 
@@ -114,15 +117,10 @@ public class Controller {
                     directoriesAndFiles.getItems().clear();
                     currPath = files.get(0).getParentFile();
                     for (File file : files) {
-                        if (file.isFile()) {
-                            if (!fileExtensionText.getText().isEmpty()) {
-                                if (file.getName().toLowerCase().contains(fileExtensionText.getText().toString().toLowerCase())) {
-                                }
-                            } else {
-                            }
+                        if (file.isFile() && (fileExtensionText.getText().isEmpty() || file.getName().toLowerCase().contains(fileExtensionText.getText().toLowerCase()))) {
+                            directoriesAndFiles.getItems().add(new TableRowData(null, file.getName(), file.getAbsolutePath()));
                         } else {
                         }
-                        directoriesAndFiles.getItems().add(new TableRowData(null, file.getName(), file.getAbsolutePath()));
                     }
                 }
             } catch (Exception e) {
@@ -156,9 +154,13 @@ public class Controller {
 
         if (cachedItems != null) {
             for (FileSystemItem item : cachedItems) {
-                if (item.getPath().toLowerCase().contains(fileName)) {
-                    System.out.println("Found: " + item.getPath());
-                    populateFileTable(new File(item.getPath()));
+                if (item.getPath().contains(drive)) {
+                    if (item.getPath().toLowerCase().contains(fileName)) {
+                        if (item.getPath().toLowerCase().endsWith(fileExtension)) {
+                            System.out.println("Found: " + item.getPath());
+                            populateFileTable(new File(item.getPath()));
+                        }
+                    }
                 }
             }
         }
@@ -204,7 +206,7 @@ public class Controller {
                         updateFilesSearched((int) filesSearched.get());
                     });
                 }));
-                timeline.setCycleCount(Animation.INDEFINITE);
+                timeline.setCycleCount(INDEFINITE);
                 timeline.play();
 
                 while (!stack.isEmpty() && !isCancelled()) {
@@ -214,28 +216,25 @@ public class Controller {
                     if (files != null) {
                         for (File file : files) {
                             FileSystemItem item = new FileSystemItem(file.getAbsolutePath(), file.isDirectory());
-                            cachedItems.add(item);
-                            filesSearched.incrementAndGet();
+                            if (!cachedItems.contains(item)) {
+                                cachedItems.add(item);
+                                filesSearched.incrementAndGet();
+                            }
+
                             if (file.isDirectory()) {
                                 stack.push(file);
-                            } else {
-                                if (targetFileExtension.isBlank()) {
-                                    if (file.getName().toLowerCase().contains(targetFileName)) {
-                                        Platform.runLater(() -> {
-                                            System.out.println("Found file: " + file.getAbsolutePath());
-                                            populateFileTable(file);
-                                            foundFiles.add(file);
-                                        });
-                                    }
-                                } else {
-                                    if (file.getName().toLowerCase().contains(targetFileName) && file.getName().toLowerCase().endsWith(targetFileExtension.toLowerCase())) {
-                                        Platform.runLater(() -> {
-                                            System.out.println("Found file: " + file.getAbsolutePath());
-                                            populateFileTable(file);
-                                            foundFiles.add(file);
-                                        });
-                                    }
-                                }
+                            } else if (
+                                    targetFileExtension.isBlank() ||
+                                            (
+                                                    file.toString().contains(directory.toString()) &&
+                                                    file.getName().toLowerCase().contains(targetFileName) &&
+                                                    file.getName().toLowerCase().endsWith(targetFileExtension.toLowerCase()))
+                            ) {
+                                Platform.runLater(() -> {
+                                    System.out.println("Found file: " + file.getAbsolutePath());
+                                    populateFileTable(file);
+                                    foundFiles.add(file);
+                                });
                             }
                         }
                     }
@@ -303,7 +302,9 @@ public class Controller {
         Platform.runLater(() -> {
             ImageView image = Helper.findImage(file);
             TableRowData rowData = new TableRowData(image, file.getName(), file.getAbsolutePath());
-            directoriesAndFiles.getItems().add(rowData);
+            if (!directoriesAndFiles.getItems().contains(rowData)) {
+                directoriesAndFiles.getItems().add(rowData);
+            }
         });
     }
 

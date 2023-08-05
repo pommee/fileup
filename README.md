@@ -21,4 +21,7 @@ Both are looking for a rather arbitrary named file with the extension `.dll` loc
 | fileup     |     Yes     | 00:08 |
 | fileup     |     No      | 00:07 |
 
-These are very rough time calculations but fileup has a 887% increased file search speed.
+These are very rough time calculations but fileup has a 887% increased file search speed.  
+
+#### However...
+If fileup has been ran one time, and has cached the entire file system; then the search speed is < 100ms.
